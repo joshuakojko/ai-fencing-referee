@@ -1,5 +1,4 @@
 import json
-import os
 import glob
 from pathlib import Path
 import yt_dlp
@@ -12,10 +11,9 @@ class FencingClipDownloader:
         self.base_dir = Path("fencing_dataset")
         self.clips_dir = self.base_dir / "video_clips"
         self.labels_dir = self.base_dir / "per_vid_labels"
-        self.failed_clips_log = self.base_dir / "failed_clips.json"
-        
-        # Create directories if they don't exist
+
         self.clips_dir.mkdir(parents=True, exist_ok=True)
+        self.labels_dir.mkdir(parents=True, exist_ok=True)
 
     def load_all_annotations(self):
         """Load all JSON annotation files and combine them"""
@@ -43,8 +41,8 @@ class FencingClipDownloader:
     def download_clip(self, clip_id, clip_data):
         """Download a specific segment of a video using direct ffmpeg download"""
         url = clip_data['url']
+
         try:
-            # Convert timestamps to float
             start_time = float(clip_data['annotations']['segment'][0])
             end_time = float(clip_data['annotations']['segment'][1])
         except (ValueError, TypeError) as e:
@@ -69,12 +67,12 @@ class FencingClipDownloader:
             
             ffmpeg_cmd = [
                 'ffmpeg',
-                '-ss', str(start_time),  # Seek before input for faster seeking
                 '-i', format_url,        # Input is the direct video URL
+                '-ss', str(start_time),  # Seek before input for faster seeking
                 '-t', str(end_time - start_time),  # Duration instead of end time
-                '-c:v', 'copy',          # Copy video to avoid re-encoding
-                '-c:a', 'copy',          # Copy audio to avoid re-encoding
-                '-avoid_negative_ts', '1',  # Avoid negative timestamps
+                '-c:v', 'libx264',          # Copy video to avoid re-encoding
+                '-c:a', 'aac',          # Copy audio to avoid re-encoding
+                '-avoid_negative_ts', 'make_zero',  # Avoid negative timestamps
                 '-y',                     # Overwrite without asking
                 str(output_path)
             ]
@@ -102,60 +100,9 @@ class FencingClipDownloader:
                 output_path.unlink()
             raise Exception(f"Download failed: {str(e)}")
 
-    def save_failed_clips(self, failed_clips):
-        """Save failed clips information to a JSON file"""
-        try:
-            failed_clips_dict = {
-                'timestamp': str(datetime.datetime.now()),
-                'total_failed': len(failed_clips),
-                'clips': {}
-            }
-            
-            # Load annotations data once
-            all_annotations = self.load_all_annotations()
-            
-            # Prepare failed clips data
-            for clip_id, error in failed_clips:
-                url = 'URL not found'
-                try:
-                    url = all_annotations.get(clip_id, {}).get('url', 'URL not found')
-                except Exception:
-                    pass
-                    
-                failed_clips_dict['clips'][clip_id] = {
-                    'error': error,
-                    'url': url
-                }
-            
-            # Load existing failures if the file exists
-            existing_data = {'attempts': [failed_clips_dict]}
-            if self.failed_clips_log.exists():
-                try:
-                    with open(self.failed_clips_log, 'r') as f:
-                        existing_data = json.load(f)
-                        if 'attempts' not in existing_data:
-                            existing_data['attempts'] = []
-                        existing_data['attempts'].append(failed_clips_dict)
-                except json.JSONDecodeError:
-                    print(f"Warning: Failed to parse existing {self.failed_clips_log}, creating new file")
-                except Exception as e:
-                    print(f"Warning: Error reading {self.failed_clips_log}: {str(e)}, creating new file")
-                
-            # Save updated data
-            with open(self.failed_clips_log, 'w') as f:
-                json.dump(existing_data, f, indent=2)
-            
-            print(f"\nFailed clips information saved to {self.failed_clips_log}")
-        except Exception as e:
-            print(f"Error saving failed clips log: {str(e)}")
-
-    def download_all_clips(self, max_workers=4):
+    def download_all_clips(self, max_workers=None):
         """Download all clips using parallel processing"""
         clips_data = self.load_all_annotations()
-        print(f"Found {len(clips_data)} clips to process")
-        
-        failed_clips = []
-        successful_clips = []
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
             futures = {
@@ -169,21 +116,12 @@ class FencingClipDownloader:
                     try:
                         result = future.result()
                         print(f"\n{result}")
-                        if not result.startswith("Skipped"):
-                            successful_clips.append(clip_id)
                     except Exception as e:
                         error_msg = str(e)
                         print(f"\nError processing {clip_id}: {error_msg}")
-                        failed_clips.append((clip_id, error_msg))
                     pbar.update(1)
 
-        # Print summary
         print(f"\nProcessing complete:")
-        print(f"Successfully downloaded: {len(successful_clips)} clips")
-        print(f"Failed: {len(failed_clips)} clips")
-        
-        if failed_clips:
-            self.save_failed_clips(failed_clips)
 
     def verify_downloads(self):
         """Verify all clips were downloaded successfully"""
@@ -206,7 +144,7 @@ def main():
     downloader = FencingClipDownloader()
     
     print("Starting clip download process...")
-    downloader.download_all_clips(max_workers=4)  # Adjust max_workers based on your system
+    downloader.download_all_clips()
     
     print("\nVerifying downloads...")
     downloader.verify_downloads()

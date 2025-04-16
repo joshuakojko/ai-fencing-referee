@@ -1,2 +1,8 @@
+__pycache__/
+.ruff_cache/
+.venv/
+
 /fencing_dataset/*
 !/fencing_dataset/per_vid_labels/
+
+.DS_Store

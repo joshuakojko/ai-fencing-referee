@@ -2,6 +2,6 @@
 
 ### Setup
 ```bash
-chmox +x setup.sh
+chmod +x setup.sh
 ./setup.sh
 ```

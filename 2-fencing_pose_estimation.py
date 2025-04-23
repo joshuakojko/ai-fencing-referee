@@ -1,6 +1,4 @@
-import json
 import logging
-import random
 from pathlib import Path
 import cv2
 import mediapipe as mp
@@ -11,8 +9,7 @@ from utils import load_video_labels
 
 logger = logging.getLogger(__name__)
 
-
-class FencingPoseExtractor:  
+class FencingPoseExtractor:
     def __init__(self):
         self.base_path = Path("fencing_dataset")
         self.clips_dir = self.base_path / "video_clips"

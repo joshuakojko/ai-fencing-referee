@@ -127,20 +127,24 @@ def visualize_video_with_pose(
             output_dir = os.path.dirname(output_path)
             if output_dir and not os.path.exists(output_dir):
                 os.makedirs(output_dir)
-                
+
             # Try with different codecs if needed
             fourcc = cv2.VideoWriter_fourcc(*"mp4v")
             writer = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
-            
+
             # Check if writer was successfully created
             if not writer.isOpened():
-                print(f"Warning: Could not create video writer with mp4v codec. Trying avc1...")
+                print(
+                    f"Warning: Could not create video writer with mp4v codec. Trying avc1..."
+                )
                 writer.release()
                 fourcc = cv2.VideoWriter_fourcc(*"avc1")
                 writer = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
-                
+
             if not writer.isOpened():
-                print(f"Error: Failed to create video writer for {output_path}. Output will not be saved.")
+                print(
+                    f"Error: Failed to create video writer for {output_path}. Output will not be saved."
+                )
                 writer = None
         except Exception as e:
             print(f"Error creating video writer: {str(e)}")

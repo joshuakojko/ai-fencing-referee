@@ -1,6 +1,7 @@
 import concurrent.futures
 import logging
 import subprocess
+import time
 from pathlib import Path
 
 from tqdm import tqdm
@@ -46,10 +47,8 @@ class FencingClipDownloader:
                 {"format": "best[height<=720]", "quiet": True}
             ) as ydl:
                 info = ydl.extract_info(url, download=False)
-                format_url = info["url"]  # Direct URL to the video
+                format_url = info["url"]
 
-            # TODO: Modify ffmpeg command video bitrate for storage efficiency
-            # TODO: Consider parallelizing and batching video download and pose detection to reduce storage needs
             ffmpeg_cmd = [
                 "ffmpeg",
                 "-i",
@@ -64,7 +63,6 @@ class FencingClipDownloader:
                 "aac",  # Copy audio to avoid re-encoding
                 "-avoid_negative_ts",
                 "make_zero",  # Avoid negative timestamps
-                "-y",  # Overwrite without asking
                 str(output_path),
             ]
 
@@ -90,22 +88,20 @@ class FencingClipDownloader:
                 output_path.unlink()
             raise Exception(f"Download failed: {str(e)}")
 
-    def download_all_clips(self, max_workers=None):
+    def download_clips_batch(self, batch, max_workers=None):
         """
-        Download all clips using parallel processing
+        Download a batch of clips using parallel processing
         """
-        clips_data = load_video_labels()
-
         with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
             futures = {
                 executor.submit(self.download_clip, clip_id, clip_data): (
                     clip_id,
                     clip_data,
                 )
-                for clip_id, clip_data in clips_data.items()
+                for clip_id, clip_data in batch.items()
             }
 
-            with tqdm(total=len(clips_data), desc="Downloading clips") as pbar:
+            with tqdm(total=len(batch), desc="Downloading batch") as pbar:
                 for future in concurrent.futures.as_completed(futures):
                     clip_id, clip_data = futures[future]
                     try:
@@ -116,7 +112,47 @@ class FencingClipDownloader:
                         print(f"\nError processing {clip_id}: {error_msg}")
                     pbar.update(1)
 
-        print(f"\nProcessing complete:")
+    def download_all_clips(self, max_workers=None, batch_size=500, pause_time=300):
+        """
+        Download all clips in batches with pauses between batches
+        
+        Args:
+            max_workers: Maximum number of worker threads
+            batch_size: Number of clips to process in each batch
+            pause_time: Pause time between batches in seconds (default: 5 minutes)
+        """
+        clips_data = load_video_labels()
+        clip_ids = list(clips_data.keys())
+        total_clips = len(clip_ids)
+        
+        print(f"Total clips to download: {total_clips}")
+        print(f"Processing in batches of {batch_size} with {pause_time} seconds pause between batches")
+        
+        # Process clips in batches
+        for i in range(0, total_clips, batch_size):
+            batch_num = i // batch_size + 1
+            end_idx = min(i + batch_size, total_clips)
+            batch_clip_ids = clip_ids[i:end_idx]
+            
+            print(f"\nProcessing batch {batch_num}/{(total_clips + batch_size - 1) // batch_size} ({len(batch_clip_ids)} clips)")
+            
+            # Create a dictionary with just this batch of clips
+            batch_data = {clip_id: clips_data[clip_id] for clip_id in batch_clip_ids}
+            
+            # Process the batch
+            self.download_clips_batch(batch_data, max_workers=max_workers)
+            
+            # Pause between batches if not the last batch
+            if end_idx < total_clips:
+                # Check if we actually downloaded anything in this batch or just skipped
+                skipped_count = sum(1 for clip_id in batch_clip_ids if (self.clips_dir / f"{clip_id}.mp4").exists())
+                if skipped_count < len(batch_clip_ids):  # Only pause if we actually downloaded something
+                    print(f"\nPausing for {pause_time} seconds before next batch...")
+                    time.sleep(pause_time)
+                else:
+                    print("\nAll clips in this batch were skipped, continuing to next batch without pause...")
+        
+        print(f"\nAll batches complete")
 
     def verify_downloads(self):
         """
@@ -143,7 +179,8 @@ def main():
     downloader = FencingClipDownloader()
 
     print("Starting clip download process...")
-    downloader.download_all_clips()
+    # Download in batches of 500 with a 5-minute pause between batches
+    downloader.download_all_clips(max_workers=4, batch_size=500, pause_time=300)
 
     print("\nVerifying downloads...")
     downloader.verify_downloads()

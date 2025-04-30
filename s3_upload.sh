@@ -1,0 +1,1 @@
+# TO DO: Follow https://docs.aws.amazon.com/code-library/latest/ug/bash_2_s3_code_examples.html
